@@ -45,13 +45,46 @@ Edit `.env` and fill in your credentials:
 
 ### 3. Set up the database
 
-Run the migration script against your PostgreSQL database:
+The database setup has three steps. Run them **in order** — each step depends on the previous one.
+
+#### 3a. Create the database
+
+Connect to PostgreSQL as a superuser (typically `postgres`) and create an empty database:
 
 ```bash
-psql -h localhost -U your_user -d citizen_shield -f Backend/001_citizen_shield_migration.sql
+psql -h localhost -U postgres -c "CREATE DATABASE citizen_shield;"
+```
+
+#### 3b. Create the application admin user
+
+The project ships with a script that creates a dedicated PostgreSQL role (`citizen_shield_admin`) that owns the database and has full DDL + DML rights (CREATE, DROP, ALTER, SELECT, INSERT, UPDATE, DELETE, TRUNCATE) — including on objects created in the future.
+
+1. Open `Backend/002_create_admin_user.sql` and replace `CHANGE_ME_STRONG_PASSWORD` with a secure password.
+2. Run the script **as a superuser** against the `postgres` maintenance database (the script switches to `citizen_shield` internally):
+
+   ```bash
+   psql -h localhost -U postgres -d postgres -f Backend/002_create_admin_user.sql
+   ```
+
+3. Put the same password into your `.env` file:
+
+   ```
+   DATABASE_URL=postgres://citizen_shield_admin:<your_password>@localhost:5432/citizen_shield
+   ```
+
+#### 3c. Run the schema migration
+
+Now run the migration **as the new admin user** so all created objects are owned by `citizen_shield_admin`:
+
+```bash
+psql -h localhost -U citizen_shield_admin -d citizen_shield -f Backend/001_citizen_shield_migration.sql
 ```
 
 This creates all tables, enums, indexes, triggers, and seeds initial region data (Nepal, Myanmar, Sudan, Iran, Georgia).
+
+> **Troubleshooting**
+> - *"permission denied to create extension"* — extensions (`pgcrypto`, `earthdistance`) require superuser rights. Either run step 3c as `postgres`, or have a superuser run the two `CREATE EXTENSION` statements from `001_citizen_shield_migration.sql` once beforehand.
+> - *"role already exists"* — safe to ignore; the admin-user script is idempotent and will `ALTER` the existing role instead.
 
 ### 4. Configure Firebase (frontend)
 
@@ -102,6 +135,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ```
 ├── Backend/
 │   ├── 001_citizen_shield_migration.sql   # Database schema + seed data
+│   ├── 002_create_admin_user.sql          # Creates citizen_shield_admin role with full rights
 │   ├── db.ts                              # PostgreSQL connection pool
 │   ├── server.ts                          # Express app entrypoint
 │   ├── middleware/
