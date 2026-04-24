@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}
+    // Document ID: Firebase Auth UID
+    // Fields:
+    //   - uid: string (required) - The user's unique ID
+    //   - displayName: string (required) - The user's name
+    //   - photoURL: string (optional) - The user's photo URL
+    //   - email: string (optional) - The user's email
+    //
+    // Collection: /chats/{regionId}/messages/{messageId}
+    // Document ID: Auto-generated
+    // Fields:
+    //   - text: string (required, max 500 chars) - Message content
+    //   - authorId: string (required) - UID of the sender
+    //   - authorName: string (required) - Name of the sender
+    //   - authorPhoto: string (optional) - Photo URL of the sender
+    //   - timestamp: timestamp (required) - When the message was sent
+    //   - region: string (required) - The region ID
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "lvl14egiant@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidMessage(data) {
+      return data.text is string && data.text.size() > 0 && data.text.size() <= 500 &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string && data.authorName.size() > 0 &&
+             data.timestamp == request.time &&
+             data.region is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    match /chats/{regionId}/messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && hasRequiredFields(['text', 'authorId', 'authorName', 'timestamp', 'region']) && isValidMessage(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+  }
+}
